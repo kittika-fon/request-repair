@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบแจ้งซ่อม</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f3f4f6; /* สีพื้นหลังเทาอ่อน */
+        }
+        /* Custom scrollbar เพื่อความสวยงาม */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #555;
+        }
+        .modal-overlay {
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        /* สีสถานะ */
+        .status-pending { background-color: #fde68a; color: #92400e; } /* Amber-200, Amber-900 */
+        .status-in-progress { background-color: #bfdbfe; color: #1e40af; } /* Blue-200, Blue-900 */
+        .status-completed { background-color: #a7f3d0; color: #065f46; } /* Green-200, Green-900 */
+        .status-cancelled { background-color: #fecaca; color: #991b1b; } /* Red-200, Red-900 */
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4">
+
+    <!-- Loading Spinner -->
+    <div id="loading-spinner" class="fixed inset-0 flex items-center justify-center bg-gray-800 bg-opacity-75 z-50 hidden">
+        <div class="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-purple-500"></div>
+        <p class="text-white text-lg ml-4">กำลังโหลด...</p>
+    </div>
+
+    <!-- Message Box -->
+    <div id="message-box" class="fixed top-4 right-4 bg-blue-500 text-white p-4 rounded-lg shadow-lg z-50 hidden">
+        <p id="message-text"></p>
+    </div>
+
+    <!-- Main Application Container -->
+    <div class="w-full max-w-4xl bg-white rounded-xl shadow-lg p-6 md:p-8">
+        <h1 class="text-3xl md:text-4xl font-bold text-center text-gray-800 mb-6">ระบบแจ้งซ่อม</h1>
+
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 space-y-4 md:space-y-0">
+            <button id="new-request-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105 w-full md:w-auto">
+                + แจ้งซ่อมใหม่
+            </button>
+            <div class="text-sm text-gray-600">
+                <span class="font-medium">User ID:</span> <span id="user-id-display" class="break-all">กำลังโหลด...</span>
+            </div>
+        </div>
+
+        <!-- Repair Request List -->
+        <div id="repair-requests-list" class="space-y-4">
+            <!-- รายการแจ้งซ่อมจะถูกโหลดที่นี่โดย JavaScript -->
+            <p class="text-center text-gray-500" id="no-requests-message">ยังไม่มีรายการแจ้งซ่อม</p>
+        </div>
+    </div>
+
+    <!-- Repair Request Modal -->
+    <div id="request-modal" class="fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center p-4 z-40 hidden modal-overlay">
+        <div class="bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-2xl max-h-[90vh] overflow-y-auto transform transition-all duration-300 scale-95 opacity-0" id="modal-content">
+            <h2 id="modal-title" class="text-2xl font-bold text-gray-800 mb-6 text-center">แจ้งซ่อมใหม่</h2>
+
+            <form id="repair-form" class="space-y-5">
+                <!-- รายละเอียดปัญหา -->
+                <div>
+                    <label for="title" class="block text-gray-700 font-medium mb-2">หัวข้อ/ชื่อเรื่องปัญหา <span class="text-red-500">*</span></label>
+                    <input type="text" id="title" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" placeholder="เช่น แอร์ไม่เย็น, ไฟดับ" required>
+                </div>
+                <div>
+                    <label for="description" class="block text-gray-700 font-medium mb-2">คำอธิบายปัญหา <span class="text-red-500">*</span></label>
+                    <textarea id="description" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 h-24 resize-y" placeholder="รายละเอียดเพิ่มเติมเกี่ยวกับปัญหา" required></textarea>
+                </div>
+                <div>
+                    <label for="location" class="block text-gray-700 font-medium mb-2">ตำแหน่ง/สถานที่ <span class="text-red-500">*</span></label>
+                    <input type="text" id="location" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" placeholder="เช่น ห้อง 201 อาคาร B" required>
+                </div>
+
+                <!-- การแนบรูปภาพ -->
+                <div>
+                    <label class="block text-gray-700 font-medium mb-2">แนบรูปภาพ (สูงสุด 5 รูป)</label>
+                    <input type="file" id="image-upload" accept="image/*" multiple class="hidden">
+                    <button type="button" id="upload-image-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition duration-300 ease-in-out">
+                        เลือกรูปภาพ
+                    </button>
+                    <p class="text-sm text-red-600 mt-2">
+                        **หมายเหตุ:** ในแอปพลิเคชันตัวอย่างนี้ รูปภาพที่แนบจะแสดงผลชั่วคราวเท่านั้น และไม่ได้ถูกจัดเก็บถาวรในฐานข้อมูล เนื่องจากข้อจำกัดด้านพื้นที่จัดเก็บของฐานข้อมูล (Firestore) ในการใช้งานจริงจะต้องใช้บริการจัดเก็บไฟล์ภายนอก (เช่น Firebase Storage)
+                    </p>
+                    <div id="image-previews" class="flex flex-wrap gap-3 mt-4">
+                        <!-- ตัวอย่างรูปภาพจะแสดงที่นี่ -->
+                    </div>
+                </div>
+
+                <!-- รายละเอียดผู้แจ้ง -->
+                <div>
+                    <label for="reporter-name" class="block text-gray-700 font-medium mb-2">ชื่อผู้แจ้ง <span class="text-red-500">*</span></label>
+                    <input type="text" id="reporter-name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" placeholder="ชื่อของคุณ" required>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label for="reported-date" class="block text-gray-700 font-medium mb-2">วันที่แจ้ง</label>
+                        <input type="date" id="reported-date" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed" readonly>
+                    </div>
+                    <div>
+                        <label for="reported-time" class="block text-gray-700 font-medium mb-2">เวลาที่แจ้ง</label>
+                        <input type="time" id="reported-time" class="w-full p-3 border border-gray-300 rounded-lg bg-gray-100 cursor-not-allowed" readonly>
+                    </div>
+                </div>
+
+                <!-- รายละเอียดการจัดการ (แก้ไขได้เฉพาะเมื่อแก้ไขรายการที่มีอยู่) -->
+                <div id="management-fields" class="space-y-5 border-t pt-5 mt-5 border-gray-200 hidden">
+                    <h3 class="text-xl font-bold text-gray-800 mb-4">ข้อมูลการจัดการ</h3>
+                    <div>
+                        <label for="assigned-department" class="block text-gray-700 font-medium mb-2">แจ้งไปยังหน่วยงาน</label>
+                        <input type="text" id="assigned-department" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" placeholder="เช่น ฝ่ายซ่อมบำรุง">
+                    </div>
+                    <div>
+                        <label for="receiver-name" class="block text-gray-700 font-medium mb-2">ผู้รับแจ้ง</label>
+                        <input type="text" id="receiver-name" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500" placeholder="ชื่อผู้รับเรื่อง">
+                    </div>
+                    <div>
+                        <label for="status" class="block text-gray-700 font-medium mb-2">สถานะการแจ้ง</label>
+                        <select id="status" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500">
+                            <option value="Pending">รอดำเนินการ</option>
+                            <option value="In Progress">กำลังดำเนินการ</option>
+                            <option value="Completed">เสร็จสิ้น</option>
+                            <option value="Cancelled">ยกเลิก</option>
+                        </select>
+                    </div>
+                    <div id="completion-fields" class="hidden space-y-4">
+                        <div>
+                            <label for="completed-date" class="block text-gray-700 font-medium mb-2">วันที่แล้วเสร็จ</label>
+                            <input type="date" id="completed-date" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500">
+                        </div>
+                        <div>
+                            <label for="repair-result" class="block text-gray-700 font-medium mb-2">ผลของการซ่อม</label>
+                            <textarea id="repair-result" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 h-24 resize-y" placeholder="สรุปผลการซ่อมแซม"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ปุ่มดำเนินการฟอร์ม -->
+                <div class="flex justify-end space-x-4 mt-6">
+                    <button type="button" id="cancel-btn" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out">
+                        ยกเลิก
+                    </button>
+                    <button type="submit" id="submit-btn" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 ease-in-out transform hover:scale-105">
+                        บันทึก
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDKs -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, addDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ตัวแปร Global ที่จัดเตรียมโดยสภาพแวดล้อม Canvas
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // การเริ่มต้น Firebase App
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+
+        let currentUserId = null;
+        let isAuthReady = false;
+        let editingRequestId = null; // ใช้ติดตามว่ากำลังแก้ไขคำขอที่มีอยู่หรือไม่
+
+        // องค์ประกอบ DOM
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const messageBox = document.getElementById('message-box');
+        const messageText = document.getElementById('message-text');
+        const userIdDisplay = document.getElementById('user-id-display');
+        const newRequestBtn = document.getElementById('new-request-btn');
+        const requestModal = document.getElementById('request-modal');
+        const modalContent = document.getElementById('modal-content');
+        const modalTitle = document.getElementById('modal-title');
+        const repairForm = document.getElementById('repair-form');
+        const cancelBtn = document.getElementById('cancel-btn');
+        const submitBtn = document.getElementById('submit-btn');
+        const repairRequestsList = document.getElementById('repair-requests-list');
+        const noRequestsMessage = document.getElementById('no-requests-message');
+
+        // ฟิลด์ฟอร์ม
+        const titleInput = document.getElementById('title');
+        const descriptionInput = document.getElementById('description');
+        const locationInput = document.getElementById('location');
+        const imageUploadInput = document.getElementById('image-upload');
+        const uploadImageBtn = document.getElementById('upload-image-btn');
+        const imagePreviewsContainer = document.getElementById('image-previews');
+        const reporterNameInput = document.getElementById('reporter-name');
+        const reportedDateInput = document.getElementById('reported-date');
+        const reportedTimeInput = document.getElementById('reported-time');
+        const managementFields = document.getElementById('management-fields');
+        const assignedDepartmentInput = document.getElementById('assigned-department');
+        const receiverNameInput = document.getElementById('receiver-name');
+        const statusSelect = document.getElementById('status');
+        const completionFields = document.getElementById('completion-fields');
+        const completedDateInput = document.getElementById('completed-date');
+        const repairResultInput = document.getElementById('repair-result');
+
+        let attachedImages = []; // ใช้เก็บอ็อบเจกต์ File สำหรับแสดงตัวอย่าง
+
+        // --- ฟังก์ชันยูทิลิตี้ ---
+
+        /**
+         * แสดงกล่องข้อความชั่วคราว
+         * @param {string} message - ข้อความที่จะแสดง
+         * @param {string} type - 'success', 'error', หรือ 'info' สำหรับการจัดสไตล์
+         */
+        function showMessage(message, type = 'info') {
+            messageText.textContent = message;
+            messageBox.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-all duration-300 ease-in-out transform translate-x-0 opacity-100`;
+            if (type === 'success') {
+                messageBox.classList.add('bg-green-500', 'text-white');
+            } else if (type === 'error') {
+                messageBox.classList.add('bg-red-500', 'text-white');
+            } else {
+                messageBox.classList.add('bg-blue-500', 'text-white');
+            }
+            messageBox.classList.remove('hidden');
+
+            setTimeout(() => {
+                messageBox.classList.add('translate-x-full', 'opacity-0');
+                messageBox.addEventListener('transitionend', () => {
+                    messageBox.classList.add('hidden');
+                    messageBox.classList.remove('translate-x-full', 'opacity-0');
+                }, { once: true });
+            }, 3000);
+        }
+
+        /** แสดงตัวหมุนโหลด */
+        function showLoading() {
+            loadingSpinner.classList.remove('hidden');
+        }
+
+        /** ซ่อนตัวหมุนโหลด */
+        function hideLoading() {
+            loadingSpinner.classList.add('hidden');
+        }
+
+        /** เปิดโมดัล */
+        function openModal() {
+            requestModal.classList.remove('hidden');
+            setTimeout(() => {
+                modalContent.classList.remove('scale-95', 'opacity-0');
+                modalContent.classList.add('scale-100', 'opacity-100');
+            }, 50); // หน่วงเวลาเล็กน้อยสำหรับการเคลื่อนไหว
+        }
+
+        /** ปิดโมดัลและรีเซ็ตฟอร์ม */
+        function closeModal() {
+            modalContent.classList.remove('scale-100', 'opacity-100');
+            modalContent.classList.add('scale-95', 'opacity-0');
+            modalContent.addEventListener('transitionend', () => {
+                requestModal.classList.add('hidden');
+                resetForm();
+            }, { once: true });
+        }
+
+        /** รีเซ็ตฟิลด์ฟอร์ม */
+        function resetForm() {
+            repairForm.reset();
+            titleInput.value = '';
+            descriptionInput.value = '';
+            locationInput.value = '';
+            reporterNameInput.value = '';
+            assignedDepartmentInput.value = '';
+            receiverNameInput.value = '';
+            statusSelect.value = 'Pending';
+            completedDateInput.value = '';
+            repairResultInput.value = '';
+            imagePreviewsContainer.innerHTML = '';
+            attachedImages = [];
+            editingRequestId = null;
+            modalTitle.textContent = 'แจ้งซ่อมใหม่';
+            managementFields.classList.add('hidden');
+            completionFields.classList.add('hidden');
+            // กำหนดวันที่/เวลาปัจจุบันสำหรับคำขอใหม่
+            const now = new Date();
+            reportedDateInput.value = now.toISOString().split('T')[0];
+            reportedTimeInput.value = now.toTimeString().split(' ')[0].substring(0, 5);
+        }
+
+        /**
+         * แสดงตัวอย่างรูปภาพ
+         * @param {Array<File>} files - อาร์เรย์ของอ็อบเจกต์ File
+         */
+        function renderImagePreviews(files) {
+            imagePreviewsContainer.innerHTML = '';
+            files.forEach((file, index) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const imgContainer = document.createElement('div');
+                    imgContainer.className = 'relative w-24 h-24 rounded-lg overflow-hidden shadow-md';
+                    imgContainer.innerHTML = `
+                        <img src="${e.target.result}" alt="Image Preview" class="w-full h-full object-cover">
+                        <button type="button" class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold" data-index="${index}">X</button>
+                    `;
+                    imagePreviewsContainer.appendChild(imgContainer);
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        /**
+         * แสดงรายการแจ้งซ่อมแต่ละรายการในรายการ
+         * @param {Object} request - อ็อบเจกต์คำขอซ่อม
+         */
+        function displayRepairRequest(request) {
+            const requestCard = document.createElement('div');
+            requestCard.id = `request-${request.id}`;
+            requestCard.className = `bg-white p-5 rounded-lg shadow-md border-l-4 ${getStatusBorderClass(request.status)} flex flex-col md:flex-row justify-between items-start md:items-center space-y-3 md:space-y-0`;
+            requestCard.innerHTML = `
+                <div class="flex-grow">
+                    <h3 class="text-xl font-semibold text-gray-800">${request.title}</h3>
+                    <p class="text-gray-600 text-sm mt-1">
+                        <span class="font-medium">ตำแหน่ง:</span> ${request.location} |
+                        <span class="font-medium">ผู้แจ้ง:</span> ${request.reporterName}
+                    </p>
+                    <p class="text-gray-600 text-sm mt-1">
+                        <span class="font-medium">แจ้งเมื่อ:</span> ${request.reportedDate} ${request.reportedTime}
+                    </p>
+                    <p class="text-gray-600 text-sm mt-1 ${request.assignedDepartment ? '' : 'italic text-gray-400'}">
+                        <span class="font-medium">หน่วยงาน:</span> ${request.assignedDepartment || 'ยังไม่ระบุ'}
+                    </p>
+                    <p class="text-gray-600 text-sm mt-1 ${request.receiverName ? '' : 'italic text-gray-400'}">
+                        <span class="font-medium">ผู้รับแจ้ง:</span> ${request.receiverName || 'ยังไม่ระบุ'}
+                    </p>
+                    ${request.status === 'Completed' ? `
+                        <p class="text-gray-600 text-sm mt-1">
+                            <span class="font-medium">เสร็จสิ้นเมื่อ:</span> ${request.completedDate || 'N/A'}
+                        </p>
+                        <p class="text-gray-600 text-sm mt-1">
+                            <span class="font-medium">ผลการซ่อม:</span> ${request.repairResult || 'N/A'}
+                        </p>
+                    ` : ''}
+                </div>
+                <div class="flex flex-col items-end space-y-2 md:ml-4">
+                    <span class="px-3 py-1 rounded-full text-xs font-semibold ${getStatusClass(request.status)}">
+                        ${getThaiStatus(request.status)}
+                    </span>
+                    <button data-id="${request.id}" class="edit-btn bg-purple-500 hover:bg-purple-600 text-white text-sm py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">
+                        แก้ไข
+                    </button>
+                </div>
+            `;
+            repairRequestsList.prepend(requestCard); // เพิ่มคำขอใหม่ที่ด้านบน
+            noRequestsMessage.classList.add('hidden'); // ซ่อนข้อความ "ยังไม่มีรายการ"
+        }
+
+        /**
+         * อัปเดตรายการแจ้งซ่อมที่มีอยู่ในรายการ
+         * @param {Object} request - อ็อบเจกต์คำขอซ่อมที่อัปเดตแล้ว
+         */
+        function updateRepairRequestDisplay(request) {
+            const existingCard = document.getElementById(`request-${request.id}`);
+            if (existingCard) {
+                existingCard.className = `bg-white p-5 rounded-lg shadow-md border-l-4 ${getStatusBorderClass(request.status)} flex flex-col md:flex-row justify-between items-start md:items-center space-y-3 md:space-y-0`;
+                existingCard.innerHTML = `
+                    <div class="flex-grow">
+                        <h3 class="text-xl font-semibold text-gray-800">${request.title}</h3>
+                        <p class="text-gray-600 text-sm mt-1">
+                            <span class="font-medium">ตำแหน่ง:</span> ${request.location} |
+                            <span class="font-medium">ผู้แจ้ง:</span> ${request.reporterName}
+                        </p>
+                        <p class="text-gray-600 text-sm mt-1">
+                            <span class="font-medium">แจ้งเมื่อ:</span> ${request.reportedDate} ${request.reportedTime}
+                        </p>
+                        <p class="text-gray-600 text-sm mt-1 ${request.assignedDepartment ? '' : 'italic text-gray-400'}">
+                            <span class="font-medium">หน่วยงาน:</span> ${request.assignedDepartment || 'ยังไม่ระบุ'}
+                        </p>
+                        <p class="text-gray-600 text-sm mt-1 ${request.receiverName ? '' : 'italic text-gray-400'}">
+                            <span class="font-medium">ผู้รับแจ้ง:</span> ${request.receiverName || 'ยังไม่ระบุ'}
+                        </p>
+                        ${request.status === 'Completed' ? `
+                            <p class="text-gray-600 text-sm mt-1">
+                                <span class="font-medium">เสร็จสิ้นเมื่อ:</span> ${request.completedDate || 'N/A'}
+                            </p>
+                            <p class="text-gray-600 text-sm mt-1">
+                                <span class="font-medium">ผลการซ่อม:</span> ${request.repairResult || 'N/A'}
+                            </p>
+                        ` : ''}
+                    </div>
+                    <div class="flex flex-col items-end space-y-2 md:ml-4">
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold ${getStatusClass(request.status)}">
+                            ${getThaiStatus(request.status)}
+                        </span>
+                        <button data-id="${request.id}" class="edit-btn bg-purple-500 hover:bg-purple-600 text-white text-sm py-2 px-4 rounded-lg shadow transition duration-300 ease-in-out">
+                            แก้ไข
+                        </button>
+                    </div>
+                `;
+            }
+        }
+
+        /**
+         * ลบรายการแจ้งซ่อมออกจากรายการ
+         * @param {string} id - ID ของคำขอที่จะลบ
+         */
+        function removeRepairRequestDisplay(id) {
+            const element = document.getElementById(`request-${id}`);
+            if (element) {
+                element.remove();
+            }
+            if (repairRequestsList.children.length === 0) {
+                noRequestsMessage.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * รับคลาส Tailwind CSS สำหรับสีพื้นหลังข้อความสถานะ
+         * @param {string} status - สตริงสถานะ
+         * @returns {string} คลาส Tailwind CSS
+         */
+        function getStatusClass(status) {
+            switch (status) {
+                case 'Pending': return 'status-pending';
+                case 'In Progress': return 'status-in-progress';
+                case 'Completed': return 'status-completed';
+                case 'Cancelled': return 'status-cancelled';
+                default: return 'bg-gray-200 text-gray-800';
+            }
+        }
+
+        /**
+         * รับคลาส Tailwind CSS สำหรับเส้นขอบสถานะ
+         * @param {string} status - สตริงสถานะ
+         * @returns {string} คลาส Tailwind CSS
+         */
+        function getStatusBorderClass(status) {
+            switch (status) {
+                case 'Pending': return 'border-amber-400';
+                case 'In Progress': return 'border-blue-400';
+                case 'Completed': return 'border-green-400';
+                case 'Cancelled': return 'border-red-400';
+                default: return 'border-gray-400';
+            }
+        }
+
+        /**
+         * แปลสถานะเป็นภาษาไทย
+         * @param {string} status - สตริงสถานะภาษาอังกฤษ
+         * @returns {string} สตริงสถานะภาษาไทย
+         */
+        function getThaiStatus(status) {
+            switch (status) {
+                case 'Pending': return 'รอดำเนินการ';
+                case 'In Progress': return 'กำลังดำเนินการ';
+                case 'Completed': return 'เสร็จสิ้น';
+                case 'Cancelled': return 'ยกเลิก';
+                default: return status;
+            }
+        }
+
+        // --- Event Listeners ---
+
+        // ปุ่มแจ้งซ่อมใหม่
+        newRequestBtn.addEventListener('click', () => {
+            resetForm();
+            modalTitle.textContent = 'แจ้งซ่อมใหม่';
+            managementFields.classList.add('hidden'); // ซ่อนฟิลด์การจัดการสำหรับคำขอใหม่
+            openModal();
+        });
+
+        // ปุ่มปิดโมดัล
+        cancelBtn.addEventListener('click', closeModal);
+
+        // ปิดโมดัลเมื่อคลิกนอกพื้นที่โมดัล
+        requestModal.addEventListener('click', (e) => {
+            if (e.target === requestModal) {
+                closeModal();
+            }
+        });
+
+        // ปุ่มอัปโหลดรูปภาพ
+        uploadImageBtn.addEventListener('click', () => {
+            imageUploadInput.click();
+        });
+
+        // จัดการการเลือกรูปภาพ
+        imageUploadInput.addEventListener('change', (e) => {
+            const files = Array.from(e.target.files);
+            const newImages = files.slice(0, 5 - attachedImages.length); // รับได้สูงสุด 5 รูป
+            attachedImages = [...attachedImages, ...newImages];
+            if (attachedImages.length > 5) {
+                attachedImages = attachedImages.slice(0, 5);
+                showMessage('สามารถแนบรูปภาพได้สูงสุด 5 รูปเท่านั้น', 'info');
+            }
+            renderImagePreviews(attachedImages);
+        });
+
+        // จัดการการลบรูปภาพจากตัวอย่าง
+        imagePreviewsContainer.addEventListener('click', (e) => {
+            if (e.target.tagName === 'BUTTON' && e.target.dataset.index !== undefined) {
+                const indexToRemove = parseInt(e.target.dataset.index);
+                attachedImages.splice(indexToRemove, 1);
+                renderImagePreviews(attachedImages);
+            }
+        });
+
+        // สลับฟิลด์การเสร็จสิ้นตามสถานะ
+        statusSelect.addEventListener('change', () => {
+            if (statusSelect.value === 'Completed') {
+                completionFields.classList.remove('hidden');
+                // กำหนดวันที่ปัจจุบันเป็นค่าเริ่มต้นสำหรับวันที่เสร็จสิ้นหากว่างเปล่า
+                if (!completedDateInput.value) {
+                    completedDateInput.value = new Date().toISOString().split('T')[0];
+                }
+            } else {
+                completionFields.classList.add('hidden');
+            }
+        });
+
+        // จัดการการส่งฟอร์ม
+        repairForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            showLoading();
+
+            let dataToSave = {
+                title: titleInput.value.trim(),
+                description: descriptionInput.value.trim(),
+                location: locationInput.value.trim(),
+                reporterName: reporterNameInput.value.trim(),
+                reportedDate: reportedDateInput.value,
+                reportedTime: reportedTimeInput.value,
+                assignedDepartment: assignedDepartmentInput.value.trim(),
+                receiverName: receiverNameInput.value.trim(),
+                status: statusSelect.value,
+                completedDate: statusSelect.value === 'Completed' ? completedDateInput.value : '',
+                repairResult: statusSelect.value === 'Completed' ? repairResultInput.value.trim() : '',
+                userId: currentUserId, // เก็บ ID ผู้ใช้ที่สร้าง/แก้ไข
+                updatedAt: serverTimestamp() // อัปเดตเสมอเมื่อบันทึก
+            };
+
+            // หมายเหตุ: ข้อมูลรูปภาพไม่ได้ถูกจัดเก็บใน Firestore เนื่องจากข้อจำกัดด้านขนาด
+            // ในแอปพลิเคชันจริง รูปภาพจะถูกอัปโหลดไปยังบริการจัดเก็บแยกต่างหาก (เช่น Firebase Storage)
+            // และ URL ของรูปภาพจะถูกจัดเก็บใน Firestore
+            // สำหรับการสาธิตนี้ imageUrls จะเป็นอาร์เรย์ว่าง
+            dataToSave.imageUrls = []; // ตัวยึดสำหรับ URL รูปภาพ
+
+            try {
+                if (editingRequestId) {
+                    // อัปเดตเอกสารที่มีอยู่
+                    const docRef = doc(db, `artifacts/${appId}/public/data/repair_requests`, editingRequestId);
+                    await updateDoc(docRef, dataToSave);
+                    showMessage('อัปเดตรายการแจ้งซ่อมเรียบร้อยแล้ว!', 'success');
+                } else {
+                    // เพิ่มเอกสารใหม่
+                    dataToSave.createdAt = serverTimestamp(); // Add createdAt only for new documents
+                    await addDoc(collection(db, `artifacts/${appId}/public/data/repair_requests`), dataToSave);
+                    showMessage('แจ้งซ่อมเรียบร้อยแล้ว!', 'success');
+                }
+                closeModal();
+            } catch (error) {
+                console.error("Error saving document: ", error);
+                showMessage('เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + error.message, 'error');
+            } finally {
+                hideLoading();
+            }
+        });
+
+        // จัดการการคลิกปุ่มแก้ไข (Delegation)
+        repairRequestsList.addEventListener('click', async (e) => {
+            if (e.target.classList.contains('edit-btn')) {
+                showLoading();
+                editingRequestId = e.target.dataset.id;
+                modalTitle.textContent = 'แก้ไขรายการแจ้งซ่อม';
+                managementFields.classList.remove('hidden'); // แสดงฟิลด์การจัดการสำหรับการแก้ไข
+
+                try {
+                    // ค้นหาข้อมูลคำขอจาก snapshot ปัจจุบัน
+                    const requestToEdit = currentRequests.find(req => req.id === editingRequestId);
+
+                    if (requestToEdit) {
+                        titleInput.value = requestToEdit.title;
+                        descriptionInput.value = requestToEdit.description;
+                        locationInput.value = requestToEdit.location;
+                        reporterNameInput.value = requestToEdit.reporterName;
+                        reportedDateInput.value = requestToEdit.reportedDate;
+                        reportedTimeInput.value = requestToEdit.reportedTime;
+                        assignedDepartmentInput.value = requestToEdit.assignedDepartment || '';
+                        receiverNameInput.value = requestToEdit.receiverName || '';
+                        statusSelect.value = requestToEdit.status;
+                        completedDateInput.value = requestToEdit.completedDate || '';
+                        repairResultInput.value = requestToEdit.repairResult || '';
+
+                        // เรียกการเปลี่ยนสถานะด้วยตนเองเพื่อแสดง/ซ่อนฟิลด์การเสร็จสิ้น
+                        if (statusSelect.value === 'Completed') {
+                            completionFields.classList.remove('hidden');
+                        } else {
+                            completionFields.classList.add('hidden');
+                        }
+
+                        // ลบตัวอย่างรูปภาพที่มีอยู่ (เนื่องจากเราไม่ได้โหลดกลับจาก Firestore)
+                        imagePreviewsContainer.innerHTML = '';
+                        attachedImages = [];
+
+                        openModal();
+                    } else {
+                        showMessage('ไม่พบรายการแจ้งซ่อมที่ต้องการแก้ไข', 'error');
+                    }
+                } catch (error) {
+                    console.error("Error fetching document for edit: ", error);
+                    showMessage('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + error.message, 'error');
+                } finally {
+                    hideLoading();
+                }
+            }
+        });
+
+        // --- การยืนยันตัวตน Firebase และการโหลดข้อมูล ---
+        let currentRequests = []; // เก็บคำขอปัจจุบันเพื่อการค้นหาการแก้ไขที่ง่าย
+
+        onAuthStateChanged(auth, async (user) => {
+            if (user) {
+                currentUserId = user.uid;
+                userIdDisplay.textContent = currentUserId;
+                isAuthReady = true;
+                console.log("Firebase Auth Ready. User ID:", currentUserId);
+                // เริ่มฟัง Firestore หลังจาก Auth พร้อมแล้วเท่านั้น
+                listenToRepairRequests();
+            } else {
+                // ลงชื่อเข้าใช้แบบไม่ระบุชื่อหากไม่มีผู้ใช้เข้าสู่ระบบและไม่มีโทเค็นที่กำหนดเอง
+                try {
+                    showLoading();
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Signed in with custom token.");
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log("Signed in anonymously.");
+                    }
+                } catch (error) {
+                    console.error("Error signing in:", error);
+                    showMessage('ไม่สามารถเข้าสู่ระบบได้: ' + error.message, 'error');
+                } finally {
+                    hideLoading();
+                }
+            }
+        });
+
+        /** ฟังการอัปเดตแบบเรียลไทม์จาก Firestore */
+        function listenToRepairRequests() {
+            if (!isAuthReady) {
+                console.warn("Firebase Auth not ready, cannot listen to Firestore.");
+                return;
+            }
+
+            const q = query(collection(db, `artifacts/${appId}/public/data/repair_requests`), orderBy('createdAt', 'desc'));
+
+            onSnapshot(q, (snapshot) => {
+                showLoading();
+                snapshot.docChanges().forEach((change) => {
+                    const data = { id: change.doc.id, ...change.doc.data() };
+                    // ตรวจสอบให้แน่ใจว่า Timestamp ถูกแปลงเป็นวันที่ที่อ่านได้หากจำเป็น
+                    if (data.createdAt && typeof data.createdAt.toDate === 'function') {
+                        data.createdAt = data.createdAt.toDate();
+                    }
+                    if (data.updatedAt && typeof data.updatedAt.toDate === 'function') {
+                        data.updatedAt = data.updatedAt.toDate();
+                    }
+
+                    if (change.type === "added") {
+                        displayRepairRequest(data);
+                        currentRequests.unshift(data); // เพิ่มที่จุดเริ่มต้นสำหรับรายการใหม่
+                    }
+                    if (change.type === "modified") {
+                        updateRepairRequestDisplay(data);
+                        // อัปเดตรายการในอาร์เรย์ currentRequests
+                        const index = currentRequests.findIndex(req => req.id === data.id);
+                        if (index > -1) {
+                            currentRequests[index] = data;
+                        }
+                    }
+                    if (change.type === "removed") {
+                        removeRepairRequestDisplay(change.doc.id);
+                        // ลบออกจากอาร์เรย์ currentRequests
+                        currentRequests = currentRequests.filter(req => req.id !== change.doc.id);
+                    }
+                });
+                if (currentRequests.length === 0) {
+                    noRequestsMessage.classList.remove('hidden');
+                } else {
+                    noRequestsMessage.classList.add('hidden');
+                }
+                hideLoading();
+            }, (error) => {
+                console.error("Error listening to Firestore: ", error);
+                showMessage('เกิดข้อผิดพลาดในการโหลดข้อมูลแจ้งซ่อม: ' + error.message, 'error');
+                hideLoading();
+            });
+        }
+
+        // เริ่มต้นฟอร์มด้วยวันที่/เวลาปัจจุบันเมื่อโหลดหน้าเว็บ
+        window.onload = () => {
+            resetForm(); // ฟังก์ชันนี้จะตั้งค่าวันที่/เวลาเริ่มต้น
+        };
+    </script>
+</body>
+</html>
